@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"os"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -56,6 +57,16 @@ ch.PublishWithContext(ctx, "", "Go", false, false, msg)
 
 func main() {
 	fmt.Println("Rabbit MQ Producer")
+
+	arguments := os.Args
+	fmt.Println(len(arguments))
+	if len(arguments) == 2 {
+
+		if arguments[1] == "client" {
+			ClientRabbitMQ()
+		}
+		os.Exit(0)
+	}
 
 	// -----------------------------------------
 	// 1. Create AMQP Connection String
@@ -222,7 +233,7 @@ func main() {
 	// -----------------------------------------
 	// 5. Prepare Message Body
 	// -----------------------------------------
-	message := "Writing to RabbitMQ !"
+	message := "i love to Writing to RabbitMQ !"
 
 	// -----------------------------------------
 	// 6. Publish Message
@@ -336,3 +347,73 @@ Provides message queueing, delivery guarantees, routing, retries, dead-lettering
 Works across all languages: Go, Node, Python, Java, etc.
 Supports plugins (like Management UI, Shovel, Federation).
 */
+
+// ClientRabbitMQ connects to RabbitMQ, consumes messages from the "Go" queue,
+// and prints each received message to the console.
+// This function runs indefinitely until manually stopped.
+func ClientRabbitMQ() {
+	fmt.Println("RabbitMQ Consumer!")
+
+	// 1. Connection string for AMQP protocol
+	// Format: amqp://username:password@host:port/vhost
+	connectionString := "amqp://admin:admin123@localhost:5672/"
+
+	// 2. Establish a TCP connection to RabbitMQ server
+	conn, err := amqp.Dial(connectionString)
+	if err != nil {
+		log.Println("Failed to connect to RabbitMQ:", err)
+		return
+	}
+	// Ensure connection is closed when function exits
+	defer conn.Close()
+
+	// 3. Open a channel on the connection
+	// Channels are virtual links inside a single TCP connection
+	ch, err := conn.Channel()
+	if err != nil {
+		log.Println("Failed to open a channel:", err)
+		return
+	}
+	// Close channel on function exit
+	defer ch.Close()
+
+	// 4. Start consuming messages from the "Go" queue
+	//
+	// Params:
+	// queue        = "Go"       → Name of queue to consume from
+	// consumerTag  = ""         → Let RabbitMQ generate a consumer tag
+	// autoAck      = true       → Automatically ACK messages immediately
+	// exclusive    = false      → Not exclusive (multiple consumers can listen)
+	// noLocal      = false      → Allow receiving messages published by same connection
+	// noWait       = false      → Wait for RabbitMQ response
+	// args         = nil        → Additional optional arguments
+	msgs, err := ch.Consume(
+		"Go",  // queue name
+		"",    // consumer tag
+		true,  // auto acknowledge
+		false, // not exclusive
+		false, // no-local disabled
+		false, // wait for server confirm
+		nil,   // no additional arguments
+	)
+	if err != nil {
+		log.Println("Failed to register consumer:", err)
+		return
+	}
+
+	// 5. Create a channel to keep the main goroutine running forever
+	forever := make(chan bool)
+
+	// 6. Start a goroutine to process messages
+	go func() {
+		for d := range msgs {
+			// d.Body → actual message payload
+			fmt.Printf("Receiver: %s\n", d.Body)
+		}
+	}()
+
+	fmt.Println("Connected to RabbitMQ Server! Waiting for messages...")
+
+	// 7. Block forever (until the process is forcefully stopped)
+	<-forever
+}
